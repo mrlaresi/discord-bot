@@ -1,0 +1,17 @@
+{
+  "name": "dwarfbot",
+  "version": "0.1",
+  "description": "Discord music b ot",
+  "main": "bot.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Laresi",
+  "license": "",
+  "dependencies": {
+    "discord.js": "^12.5.1",
+    "usetube": "^1.2.0",
+    "ytdl-core": "^4.4.0"
+  }
+}
