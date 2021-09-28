@@ -11,7 +11,7 @@
   "license": "",
   "dependencies": {
     "@discordjs/opus": "github:discordjs/opus",
-    "discord.js": "^13.5.3",
+    "discord.js": "^12.5.3",
     "dotenv": "^10.0.0",
     "usetube": "^1.2.0",
     "ytdl-core": "^4.9.1"
