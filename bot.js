@@ -7,15 +7,15 @@ const usetube = require('usetube'); // Tool used for searching videos by paramet
 const client = new Discord.Client();
 
 // Stores the server id with corresponding song queue incase the bot will be
-// used on multiple servers
+// used on multiple servers simultaneously
 const queue = new Map();
 
 // Variable to store the timeout for disconnection
 let timeout;
 // Stores the messages sent by the bot
-let nowPlaying = [];
+let botMessages = [];
 
-const isDebug = true;
+const isverbose = true;
 
 
 /**
@@ -30,22 +30,26 @@ client.on("ready", function() {
 /**
  * On message sent by user, do something
  */
-client.on("message", async function(message) {
+client.on("message", async (message) => {
 	let msg = message;
 	if (msg.author.bot) {
 		if (msg.content.startsWith("Now playing") || msg.content.includes("i.ytimg.com")) {
-			nowPlaying.push(msg);
+			botMessages.push(msg);
 		} else {
-			setTimeout(function() {
+			setTimeout(() => {
 				message.delete();
 			},10000);
 		}
 		return;
 	}
-	else {
-		message.delete();
-	}
+	
+	message.delete()
+	.catch(() => {
+		msg.reply(`Sorry, I don't have permission to delete messages. For best
+		results consider giving me ability to 'Manage messages'.`)
+	});
 
+	// server specific queue
 	const serverQueue = queue.get(msg.guild.id);
 
 	const content = msg.content.split(" ")[0].toLowerCase();
@@ -62,11 +66,8 @@ client.on("message", async function(message) {
 		case "remove":
 			remove(msg, serverQueue);
 			break;
-		case "earrape":
-			earrape(msg, serverQueue);
-			break;
 		case "clear":
-			clear(msg);
+//			clear(msg);
 			break;
 		case "ping":
 			msg.reply("pong");
@@ -76,11 +77,8 @@ client.on("message", async function(message) {
 					  \n> skip: Skips the song currently playing\
 					  \n> stop: Stops playing music and clears the queue\
 					  \n> restart: Starts playing the same song again\
-					  \n> remove [i]: removes the number i from queue\
-					  \nIf no known command is given, I will try and search the text from Youtube.");
-			break;
-		case "pelataanko":
-			msg.reply("" + doWePlay());
+					  \n> remove [i]: removes the ith video from the queue\
+					  \nIf no known command is given, I will try and search the given text from Youtube.");
 			break;
 		default:
 			msg.content = "play " + msg.content;
@@ -91,81 +89,70 @@ client.on("message", async function(message) {
 
 
 /**
- * Dumb function that returns "should we play or not"
- * Will probably be deleted in the future
- */
-function doWePlay() {
-	let bool = Math.round(Math.random());
-	if (bool) return "pelataan";
-	return "ei pelata";
-}
-
-
-/**
  * Handles song requests made by users
- * @param {*} msg message sent by the user
- * @param {*} serverQueue song queue on the server
+ * @param msg message sent by the user
+ * @param serverQueue song queue on the server
  */
-async function handleSong(msg, serverQueue) {
-	// If bot has no permission to join, speak or user entered invalid
-	// input, stop handling.
+const handleSong = async (msg, serverQueue) => {
 	if (!verify(msg)) return;
 
 	// Check if request was http(s) request or search query
 	let id;
-	let url = searchUrl(msg);
+	let url = getUrl(msg);
 	if (!url.startsWith("http")) {
 		id = await searchString(msg);
 		url = "http://www.youtube.com/watch?v=" + id;
 	}
 
-	//
-	//if (url.includes("didyoumean"))
-
-	const voiceChannel = msg.member.voice.channel;
-	try {
-		// Check for if no video was found	
+	try {	
 		if (id === "") {
-			throw `Unable to find video.`;
+			let asd = `error searching vid, this should never be 
+			reached. pls contact the developer :)`;
+			msg.reply(asd);
+			verbose(asd);
 		}
-		debug(`Found address for query: ${url}`);
+		verbose(`Found address for query: ${url}`);
 
-		// Get song info using ytdl from Youtube
+		// Get song info using ytdl-core from Youtube
 		const songInfo = await ytdl.getInfo(url);
 		const song = {
 			title: songInfo.videoDetails.title,
 			url: songInfo.videoDetails.video_url,
-			thumbnail: songInfo.videoDetails.thumbnail.thumbnails[songInfo.videoDetails.thumbnail.thumbnails.length-1].url
+			thumbnail: songInfo.videoDetails.thumbnails[songInfo.videoDetails.thumbnails.length-1].url,
+			length: songInfo.videoDetails.lengthSeconds
 		}
-		debug(`Song found successfully from Youtube`);
-		//console.log(queue);
+		verbose(`Song found successfully from Youtube`);
 		// If queue is empty, create a queue and add song to it
 		if (!serverQueue) {
 			// Base form for the queue
-			const construct = {
+			const baseQueue = {
 				textChannel: msg.channel,
-				voiceChannel: voiceChannel,
+				voiceChannel: msg.member.voice.channel,
 				connection: null,
 				songs: [],
 				volume: 5,
 				playing: true
 			};
 			// Add queue to the guild where the message came from
-			queue.set(msg.guild.id, construct);
-			construct.songs.push(song);
+			queue.set(msg.guild.id, baseQueue);
+			baseQueue.songs.push(song);
+			baseQueue.connection = await baseQueue.voiceChannel.join();
+			play(msg.guild, baseQueue.songs[0]);
+			return;
 
-			construct.connection = await voiceChannel.join();
-			//console.log(construct);
-			play(msg.guild, construct.songs[0]);
-
-		} else { // Else add a song to the queue
-			serverQueue.songs.push(song);
-			//updateQueue(msg, serverQueue);
-			msg.channel.send(`${song.title} has been added to the queue.`);
+		} 
+		serverQueue.songs.push(song);
+		//updateQueue(msg, serverQueue);
+		// If bot has stopped playing audio before disconnecting, restart it
+		if (!serverQueue.playing) {
+			serverQueue.playing = true;
+			play(msg.guild, serverQueue.songs[0]);
 		}
+		msg.channel.send(`${song.title} has been added to the queue.`);
+		
 	} catch (error) {
-		debug(`No video found with: ${msg.content}`);
-		console.log(error);
+		verbose(`No video found with: ${msg.content}`);
+		verbose(`${error}`);
 		queue.delete(msg.guild.id);
 		msg.channel.send(`Unable to find a video with argument: ${msg.content.slice(5)}`);
 	}
@@ -173,33 +160,36 @@ async function handleSong(msg, serverQueue) {
 
 
 /**
- * Plays the song next in the queue
- * @param {*} guild server on discrod that it's connected to
- * @param {*} song requested song
+ * Plays the next song in the queue
+ * @param guild server the bot will play on
+ * @param song requested song
  */
-function play(guild, song) {
+const play = (guild, song) => {
 	const que = queue.get(guild.id);
 	// If song doesn't exist
 	if (!song) {
+		// Disconnect timeout
 		timeout = setTimeout(function () {
+			queue.delete(guild.id);
 			que.voiceChannel.leave();
 		}, 30000);
-		queue.delete(guild.id);
+		que.playing = false;
+		queue.set(guild.id, que)
 		return;
 	}
-	// If timeout is set, clear it and start playing
+	// If timeout for disconnect is set, cancel it and start playing again
 	if (timeout) {
 		clearTimeout(timeout);
 	}
 
-	debug(`Playing song: ${song.title}`);
-	const dispatch = que.connection.play(ytdl(song.url)).on("finish", function () {
-		for (let msg of nowPlaying) {
+	verbose(`Playing song: ${song.title}`);
+	const dispatch = que.connection.play(ytdl(song.url))
+	.on("finish", () => {
+		for (let msg of botMessages) {
 			msg.delete();
 		}
-		nowPlaying = [];
+		botMessages = [];
 		que.songs.shift();
-		//console.log(que.songs);
 		play(guild, que.songs[0]);
 	}).on("error", function (error) {
 		console.error(error)
@@ -211,46 +201,103 @@ function play(guild, song) {
 
 }
 
-function skip(msg, serverQue) {
-	debug("Skipping currently playing song");
-	msg.channel.send("Skipping song.")
-	serverQue.connection.dispatcher.end();
+
+/**
+ * Check if bot is playing audio
+ * @param serverQue song queue on the server
+ * @returns true if playing, otherwise false
+ */
+const isPlaying = serverQue => {
+	if (serverQue) 
+		if (serverQue.connection.dispatcher) 
+			return true;
+	return false;
 }
 
-function stop(msg, serverQue) {
-	debug("Stopping playback and clearing queue");
-	msg.channel.send("Stopping audio.");
-	serverQue.songs = [];
-	serverQue.connection.dispatcher.end();
-}
 
-function restart(msg, serverQue) {
-	debug("Restarting currently playing song");
-	serverQue.songs.unshift(serverQue.songs[0]);
-	msg.channel.send(`Restarting song ${serverQue.songs[0].title}`);
-	serverQue.connection.dispatcher.end();
-}
 
-function remove(msg, serverQue) {
-	let index = msg.content.split(" ").splice(1);
-	if (index > 0 && index < serverQue.songs.length) {
-		msg.channel.send(`Song ${serverQue.songs[index].title} removed successfully.`)
-		serverQue.songs.splice(index, 1)
+/**
+ * Stops audio playback of the bot
+ * @param {*} serverQue song queue on the server
+ * @returns true if audio was stopped, otherwise false
+ */
+const stopAudio = serverQue => {
+	if (isPlaying(serverQue)) {
+		serverQue.connection.dispatcher.end(); 
+		return true; 
 	}
+	return false;
+}
+
+
+/**
+ * Skips the currently playing song
+ * @param msg message sent by the user
+ * @param serverQue song queue on the server
+ * @returns 
+ */
+const skip = (msg, serverQue) => {
+	if (stopAudio(serverQue)) {
+		verbose("Skipping currently playing song");
+		msg.channel.send("Skipping song.");
+		return;
+	}
+	msg.channel.send("Nothing is playing!");;
+}
+
+
+/**
+ * Skips the currently playing song and clears queue
+ * @param msg message sent by the user
+ * @param serverQue song queue on the server
+ */
+const stop = (msg, serverQue) => {
+	if (stopAudio(serverQue)) {
+		serverQue.songs = [];
+		verbose("Stopping playback and clearing queue");
+		msg.channel.send("Stopping audio.");
+		return;
+	}
+	msg.channel.send("Nothing is playing!");
+}
+
+const restart = (msg, serverQue) => {
+	if (isPlaying(serverQue)) {
+		verbose("Restarting currently playing song");
+		serverQue.songs.unshift(serverQue.songs[0]);
+		msg.channel.send(`Restarting song ${serverQue.songs[0].title}`);
+		serverQue.connection.dispatcher.end();
+		return;
+	}
+	msg.channel.send("Nothing is playing!");
+}
+
+const remove = (msg, serverQue) => {
+	if (isPlaying(serverQue)) {
+		let index = msg.content.split(" ").splice(1);
+		if (index > 0 && index < serverQue.songs.length) {
+			msg.channel.send(`Song ${serverQue.songs[index].title} removed successfully.`)
+			serverQue.songs.splice(index, 1)
+			return;
+		}
+		msg.channel.send(`Song doesn't exist on index ${index}`);
+		return;
+	}
+	msg.channel.send("Nothing is playing!")
 }
 
 /**
- * Gets the http address for the video user wrote after the play command
- * @param {*} msg string, which the user wrote
+ * If user wrote http(s) address in the message, get it. Undefined.
+ * @param msg string, which the user wrote
  */
-function searchUrl(msg) {
+const getUrl = msg => {
 	const content = msg.content.split(" ");
 	return content[1];
 }
 
 function updateQueue(serverQueue) {
-	if (nowPlaying.length < 2) {
-		nowPlaying[nowPlaying.length-1].delete();
+	if (botMessages.length < 2) {
+		botMessages[botMessages.length-1].delete();
 	}
 
 	let message = `Next in que:`;
@@ -262,35 +309,31 @@ function updateQueue(serverQueue) {
 }
 
 /**
- * Searches the string user has entered after the play command on Youtube 
- * and return the first result found
- * @param {*} msg string, which the user wrote
+ * Searches Youtube with the text the user inserted, returning the video id
+ * for the first result found
+ * @param msg string, which the user wrote
  */
-async function searchString(msg) {
+ const searchString = async msg => {
 	const content = msg.content.split(" ");
-	let query = content[1];
-	for (let i = 2; i < content.length; i++)
-		query += " " + content[i];
-	debug(`Query: ${query}`);
+	let query = content.slice(1).join(" ");
+	verbose(`Query: ${query}`);
 
 	// Search for Youtube video using usetube module
-	let id = await usetube.searchVideo(query)
-		.then(function(videos) {
+	let id = await 
+		usetube.searchVideo(query)
+		.then((videos) => {
 			let id = "";
 			for (let i = 0; i < videos.tracks.length; i++) {
-				if (videos.tracks[i] === undefined) {
-					continue;
-				}
+				if (videos.tracks[i] === undefined) { continue;	}
 
 				id = videos.tracks[i].id;
-				if (id !== "didyoumean") {
-					return id;
-				}
+				if (id !== "didyoumean") { return id; }
 			}
 			return id;
 		})
-		.catch(function(err) {
-			console.log("Following error occurred:\n" + err);
+		.catch(error => {
+			verbose(`${error}`);
+			return "";
 		});
 
 	return id;
@@ -299,12 +342,12 @@ async function searchString(msg) {
 
 /**
  * Verifies if the bot is allowed to play music
- * @param {*} msg message sent by user
+ * @param {Discord.Message} msg message sent by user
  */
-function verify(msg) {
+const verify = msg => {
 	const args = msg.content.split(" ");
 	if (args[1] === undefined) {
-		debug("No argument was inserted");
+		verbose("No argument was inserted");
 		msg.channel.send("No search argument was given.");
 		return false;
 	}
@@ -313,24 +356,17 @@ function verify(msg) {
 	const voiceChannel = msg.member.voice.channel;
 
 	if (!voiceChannel) {
-		debug("User not in a voice channel");
+		verbose("User not in a voice channel");
 		msg.channel.send("You need to be in a voice channel to play music!");
 		return false;
 	}
 
 	const permissions = voiceChannel.permissionsFor(msg.client.user);
 
-	// If no permission to join channel...
-	if (!permissions.has("CONNECT")) {
-		debug(`Not allowed to join ${voiceChannel.name}`);
+	// If no permission to join channel or speak on it...
+	if (!permissions.has("CONNECT") || !permissions.has("SPEAK")) {
+		verbose(`Not allowed to join "${voiceChannel.name}"`);
 		msg.channel.send("I don't have permission to join your channel.");
-		return false;
-	}
-
-	// If no permission to speak on the channel...
-	if (!permissions.has("SPEAK")) {
-		debug(`Not allowed to join ${voiceChannel.name}`);
-		msg.channel.send("I don't have permission to speak on your channel.");
 		return false;
 	}
 	return true;
@@ -338,11 +374,11 @@ function verify(msg) {
 
 
 /**
- * If bot is started with argument 'debug', it will write debug logs to console
- * in order to help finding bugs in the program :^)
+ * If bot is started with argument 'verbose', it will write more text to the
+ * console in order to help finding bugs in the program :^)
  */
-function debug(string) {
-	if (isDebug) console.log(string);
+const verbose = string => {
+	if (isverbose) console.log(string);
 }
 
 

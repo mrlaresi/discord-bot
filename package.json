@@ -10,8 +10,10 @@
   "author": "Laresi",
   "license": "",
   "dependencies": {
-    "discord.js": "^12.5.1",
+    "@discordjs/opus": "github:discordjs/opus",
+    "discord.js": "^13.5.3",
+    "dotenv": "^10.0.0",
     "usetube": "^1.2.0",
-    "ytdl-core": "^4.4.0"
+    "ytdl-core": "^4.9.1"
   }
 }
