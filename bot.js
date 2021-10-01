@@ -1,10 +1,11 @@
 // Run dotenv
 require("dotenv").config();
 
-const Discord = require('discord.js'); // Main library used for handling discord
+const { Client, Intents } = require('discord.js'); // Main library used for handling discord
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType, AudioPlayerStatus } = require('@discordjs/voice');
 const ytdl = require('ytdl-core'); // Tool used for playing Youtube videos
 const usetube = require('usetube'); // Tool used for searching videos by parameter
-const client = new Discord.Client();
+const client = new Client({intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_VOICE_STATES]});
 
 // Stores the server id with corresponding song queue incase the bot will be
 // used on multiple servers simultaneously
@@ -30,28 +31,35 @@ client.on("ready", function() {
 /**
  * On message sent by user, do something
  */
-client.on("message", async (message) => {
-	let msg = message;
-	if (msg.author.bot) {
+client.on("messageCreate", async msg => {
+	if (!msg.guild.me.permissionsIn(msg.channel).has("SEND_MESSAGES")) {
+		verbose(`No permission to message to channel ${msg.channel}`);
+		return;
+	}
+	if (msg.author.bot){
 		if (msg.content.startsWith("Now playing") || msg.content.includes("i.ytimg.com")) {
 			botMessages.push(msg);
 		} else {
 			setTimeout(() => {
-				message.delete();
+				msg.delete();
 			},10000);
 		}
 		return;
 	}
 	
-	message.delete()
-	.catch(() => {
+	if (msg.guild.me.permissionsIn(msg.channel).has("MANAGE_MESSAGES")) {
+		msg.delete()
+		.catch(() => {
+			verbose(`Tried deleting already deleted message`)
+		});
+	} else {
 		msg.reply(`Sorry, I don't have permission to delete messages. For best
-		results consider giving me ability to 'Manage messages'.`)
-	});
+		results consider giving me ability to 'Manage messages'.`);
+	}
+	
 
 	// server specific queue
-	const serverQueue = queue.get(msg.guild.id);
-
+	const serverQueue = queue.get(msg.guildId);
 	const content = msg.content.split(" ")[0].toLowerCase();
 	switch (content) {
 		case "skip":
@@ -127,16 +135,21 @@ const handleSong = async (msg, serverQueue) => {
 			// Base form for the queue
 			const baseQueue = {
 				textChannel: msg.channel,
-				voiceChannel: msg.member.voice.channel,
+				voiceChannel: {
+					channelId: msg.member.voice.channelId,
+					guildId: msg.guildId,
+					adapterCreator: msg.member.voice.guild.voiceAdapterCreator,
+				},
 				connection: null,
 				songs: [],
-				volume: 5,
-				playing: true
+				playing: true,
+				audioPlayer: createAudioPlayer()
 			};
 			// Add queue to the guild where the message came from
 			queue.set(msg.guild.id, baseQueue);
 			baseQueue.songs.push(song);
-			baseQueue.connection = await baseQueue.voiceChannel.join();
+			baseQueue.connection = joinVoiceChannel(baseQueue.voiceChannel);
+			baseQueue.connection.subscribe(baseQueue.audioPlayer)
 			play(msg.guild, baseQueue.songs[0]);
 			return;
 
@@ -147,6 +160,7 @@ const handleSong = async (msg, serverQueue) => {
 		if (!serverQueue.playing) {
 			serverQueue.playing = true;
 			play(msg.guild, serverQueue.songs[0]);
+			return;
 		}
 		msg.channel.send(`${song.title} has been added to the queue.`);
 		
@@ -171,7 +185,9 @@ const play = (guild, song) => {
 		// Disconnect timeout
 		timeout = setTimeout(function () {
 			queue.delete(guild.id);
-			que.voiceChannel.leave();
+			que.audioPlayer.stop();
+			que.connection.disconnect();
+			verbose("disconnected");
 		}, 30000);
 		que.playing = false;
 		queue.set(guild.id, que)
@@ -183,50 +199,31 @@ const play = (guild, song) => {
 	}
 
 	verbose(`Playing song: ${song.title}`);
-	const dispatch = que.connection.play(ytdl(song.url))
-	.on("finish", () => {
+	let resource = createAudioResource(
+		ytdl(
+			song.url, 
+			{filter:"audioonly", quality: "highestaudio"}), 
+		{inlineVolume: true}
+	);
+	que.audioPlayer.play(resource);
+	que.audioPlayer
+	.on(AudioPlayerStatus.Idle, () => {
 		for (let msg of botMessages) {
 			msg.delete();
 		}
 		botMessages = [];
 		que.songs.shift();
 		play(guild, que.songs[0]);
-	}).on("error", function (error) {
+	})
+	.on("error", function (error) {
 		console.error(error)
 	});
+	resource.volume.setVolume(0.2);
+	
 
-	dispatch.setVolumeLogarithmic(que.volume / 5);
 	que.textChannel.send(song.thumbnail);
 	que.textChannel.send(`Now playing: ${song.title}`);
 
-}
-
-
-/**
- * Check if bot is playing audio
- * @param serverQue song queue on the server
- * @returns true if playing, otherwise false
- */
-const isPlaying = serverQue => {
-	if (serverQue) 
-		if (serverQue.connection.dispatcher) 
-			return true;
-	return false;
-}
-
-
-
-/**
- * Stops audio playback of the bot
- * @param {*} serverQue song queue on the server
- * @returns true if audio was stopped, otherwise false
- */
-const stopAudio = serverQue => {
-	if (isPlaying(serverQue)) {
-		serverQue.connection.dispatcher.end(); 
-		return true; 
-	}
-	return false;
 }
 
 
@@ -237,7 +234,8 @@ const stopAudio = serverQue => {
  * @returns 
  */
 const skip = (msg, serverQue) => {
-	if (stopAudio(serverQue)) {
+	if (serverQue.playing) {
+		serverQue.audioPlayer.stop();
 		verbose("Skipping currently playing song");
 		msg.channel.send("Skipping song.");
 		return;
@@ -252,8 +250,9 @@ const skip = (msg, serverQue) => {
  * @param serverQue song queue on the server
  */
 const stop = (msg, serverQue) => {
-	if (stopAudio(serverQue)) {
+	if (serverQue.playing) {
 		serverQue.songs = [];
+		serverQue.audioPlayer.stop();
 		verbose("Stopping playback and clearing queue");
 		msg.channel.send("Stopping audio.");
 		return;
@@ -262,18 +261,18 @@ const stop = (msg, serverQue) => {
 }
 
 const restart = (msg, serverQue) => {
-	if (isPlaying(serverQue)) {
+	if (serverQue.playing) {
 		verbose("Restarting currently playing song");
 		serverQue.songs.unshift(serverQue.songs[0]);
 		msg.channel.send(`Restarting song ${serverQue.songs[0].title}`);
-		serverQue.connection.dispatcher.end();
+		serverQue.audioPlayer.stop();
 		return;
 	}
 	msg.channel.send("Nothing is playing!");
 }
 
 const remove = (msg, serverQue) => {
-	if (isPlaying(serverQue)) {
+	if (serverQue.playing) {
 		let index = msg.content.split(" ").splice(1);
 		if (index > 0 && index < serverQue.songs.length) {
 			msg.channel.send(`Song ${serverQue.songs[index].title} removed successfully.`)
@@ -321,13 +320,11 @@ function updateQueue(serverQueue) {
 	// Search for Youtube video using usetube module
 	let id = await 
 		usetube.searchVideo(query)
-		.then((videos) => {
+		.then(videos => {
 			let id = "";
-			for (let i = 0; i < videos.tracks.length; i++) {
-				if (videos.tracks[i] === undefined) { continue;	}
-
-				id = videos.tracks[i].id;
-				if (id !== "didyoumean") { return id; }
+			for (let i = 0; i < videos.videos.length; i++) {
+				id = videos.videos[i].id;
+				if (id !== undefined) {return id; }
 			}
 			return id;
 		})
@@ -335,14 +332,13 @@ function updateQueue(serverQueue) {
 			verbose(`${error}`);
 			return "";
 		});
-
 	return id;
 }
 
 
 /**
  * Verifies if the bot is allowed to play music
- * @param {Discord.Message} msg message sent by user
+ * @param msg message sent by user
  */
 const verify = msg => {
 	const args = msg.content.split(" ");
