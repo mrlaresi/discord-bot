@@ -13,11 +13,19 @@ const queue = new Map();
 
 // Variable to store the timeout for disconnection
 let timeout;
-// Stores the messages sent by the bot
-let botMessages = [];
 
-const isverbose = true;
+let isVerbose = false;
 
+let args = process.argv.slice(2)
+for (let i = 0; i < args.length; i++) {
+	switch (args[i]) {
+		case "verbose":
+			isVerbose = true;
+			break;
+		default:
+			break;
+	}
+}
 
 /**
  * When bot has started, send a message to console
@@ -38,9 +46,11 @@ client.on("messageCreate", async msg => {
 	}
 	if (msg.author.bot){
 		if (msg.content.startsWith("Now playing") || msg.content.includes("i.ytimg.com")) {
-			botMessages.push(msg);
+			let que = queue.get(msg.guild.id);
+			que.botMessages.push(msg);
 		} else {
 			setTimeout(() => {
+				verbose("Deleted message via timeout.")
 				msg.delete();
 			},10000);
 		}
@@ -49,7 +59,8 @@ client.on("messageCreate", async msg => {
 	
 	if (msg.guild.me.permissionsIn(msg.channel).has("MANAGE_MESSAGES")) {
 		msg.delete()
-		.catch(() => {
+		.catch((error) => {
+			console.log(error)
 			verbose(`Tried deleting already deleted message`)
 		});
 	} else {
@@ -142,15 +153,18 @@ const handleSong = async (msg, serverQueue) => {
 				},
 				connection: null,
 				songs: [],
+				botMessages: [],
 				playing: true,
-				audioPlayer: createAudioPlayer()
+				audioPlayer: createAudioPlayer(),
+				timeout: undefined
 			};
 			// Add queue to the guild where the message came from
 			queue.set(msg.guild.id, baseQueue);
 			baseQueue.songs.push(song);
 			baseQueue.connection = joinVoiceChannel(baseQueue.voiceChannel);
-			baseQueue.connection.subscribe(baseQueue.audioPlayer)
-			play(msg.guild, baseQueue.songs[0]);
+			baseQueue.connection.subscribe(baseQueue.audioPlayer);
+			setupAudioPlayer(msg.guild);
+			play(baseQueue, baseQueue.songs[0]);
 			return;
 
 		} 
@@ -159,13 +173,14 @@ const handleSong = async (msg, serverQueue) => {
 		// If bot has stopped playing audio before disconnecting, restart it
 		if (!serverQueue.playing) {
 			serverQueue.playing = true;
-			play(msg.guild, serverQueue.songs[0]);
+			interruptTimeout(serverQueue);
+			play(serverQueue, serverQueue.songs[0]);
 			return;
 		}
 		msg.channel.send(`${song.title} has been added to the queue.`);
 		
 	} catch (error) {
-		verbose(`No video found with: ${msg.content}`);
+		verbose(`Unable to find video:`);
 		verbose(`${error}`);
 		queue.delete(msg.guild.id);
 		msg.channel.send(`Unable to find a video with argument: ${msg.content.slice(5)}`);
@@ -173,30 +188,58 @@ const handleSong = async (msg, serverQueue) => {
 }
 
 
+const setupAudioPlayer = (guild) => {
+	verbose("Setting up AudioPlayer.")
+	let que = queue.get(guild.id);
+	que.audioPlayer
+	.on(AudioPlayerStatus.Idle, () => {
+		que.songs.shift();
+		for (let msg of que.botMessages) {
+			msg.delete();
+		}
+		que.botMessages = [];
+		if (que.songs.length === 0) {
+			startTimeout(guild); 
+			return;
+		}
+		play(que, que.songs[0]);
+	})
+	.on("error", function (error) {
+		verbose(error);
+	});
+}
+
+
+const startTimeout = (guild) => {
+	verbose("Starting disconnect timeout.");
+	let que = queue.get(guild.id);
+	que.timeout = setTimeout(function () {
+		queue.delete(guild.id);
+		que.audioPlayer.stop();
+		que.connection.disconnect();
+		verbose("Disconnected.");
+	}, 30000);
+	que.playing = false;
+	queue.set(guild.id, que)
+	return;
+}
+
+
+const interruptTimeout = (que) => {
+	clearTimeout(que.timeout);
+	verbose("Timeout interrupted.");
+	que.timeout = undefined;
+	return;
+}
+
+
 /**
  * Plays the next song in the queue
- * @param guild server the bot will play on
+ * @param que necessary information associated with the server
  * @param song requested song
  */
-const play = (guild, song) => {
-	const que = queue.get(guild.id);
-	// If song doesn't exist
-	if (!song) {
-		// Disconnect timeout
-		timeout = setTimeout(function () {
-			queue.delete(guild.id);
-			que.audioPlayer.stop();
-			que.connection.disconnect();
-			verbose("disconnected");
-		}, 30000);
-		que.playing = false;
-		queue.set(guild.id, que)
-		return;
-	}
-	// If timeout for disconnect is set, cancel it and start playing again
-	if (timeout) {
-		clearTimeout(timeout);
-	}
+const play = (que, song) => {
+	verbose("Entering play function.")
 
 	verbose(`Playing song: ${song.title}`);
 	let resource = createAudioResource(
@@ -205,22 +248,11 @@ const play = (guild, song) => {
 			{filter:"audioonly", quality: "highestaudio"}), 
 		{inlineVolume: true}
 	);
+	
 	que.audioPlayer.play(resource);
-	que.audioPlayer
-	.on(AudioPlayerStatus.Idle, () => {
-		for (let msg of botMessages) {
-			msg.delete();
-		}
-		botMessages = [];
-		que.songs.shift();
-		play(guild, que.songs[0]);
-	})
-	.on("error", function (error) {
-		console.error(error)
-	});
 	resource.volume.setVolume(0.2);
 	
-
+	verbose("playback starting")
 	que.textChannel.send(song.thumbnail);
 	que.textChannel.send(`Now playing: ${song.title}`);
 
@@ -234,11 +266,13 @@ const play = (guild, song) => {
  * @returns 
  */
 const skip = (msg, serverQue) => {
-	if (serverQue.playing) {
-		serverQue.audioPlayer.stop();
-		verbose("Skipping currently playing song");
-		msg.channel.send("Skipping song.");
-		return;
+	if (serverQue) {
+		if (serverQue.playing) {
+			serverQue.audioPlayer.stop();
+			verbose("Skipping currently playing song");
+			msg.channel.send("Skipping song.");
+			return;
+		}
 	}
 	msg.channel.send("Nothing is playing!");;
 }
@@ -250,37 +284,43 @@ const skip = (msg, serverQue) => {
  * @param serverQue song queue on the server
  */
 const stop = (msg, serverQue) => {
-	if (serverQue.playing) {
-		serverQue.songs = [];
-		serverQue.audioPlayer.stop();
-		verbose("Stopping playback and clearing queue");
-		msg.channel.send("Stopping audio.");
-		return;
+	if (serverQue) {
+		if (serverQue.playing) {
+			serverQue.songs = [];
+			serverQue.audioPlayer.stop();
+			verbose("Stopping playback and clearing queue");
+			msg.channel.send("Stopping audio.");
+			return;
+		}
 	}
 	msg.channel.send("Nothing is playing!");
 }
 
 const restart = (msg, serverQue) => {
-	if (serverQue.playing) {
-		verbose("Restarting currently playing song");
-		serverQue.songs.unshift(serverQue.songs[0]);
-		msg.channel.send(`Restarting song ${serverQue.songs[0].title}`);
-		serverQue.audioPlayer.stop();
-		return;
+	if (serverQue) {
+		if (serverQue.playing) {
+			verbose("Restarting currently playing song");
+			serverQue.songs.unshift(serverQue.songs[0]);
+			msg.channel.send(`Restarting song ${serverQue.songs[0].title}`);
+			serverQue.audioPlayer.stop();
+			return;
+		}
 	}
 	msg.channel.send("Nothing is playing!");
 }
 
 const remove = (msg, serverQue) => {
-	if (serverQue.playing) {
-		let index = msg.content.split(" ").splice(1);
-		if (index > 0 && index < serverQue.songs.length) {
-			msg.channel.send(`Song ${serverQue.songs[index].title} removed successfully.`)
-			serverQue.songs.splice(index, 1)
+	if (serverQue) {
+		if (serverQue.playing) {
+			let index = msg.content.split(" ").splice(1);
+			if (index > 0 && index < serverQue.songs.length) {
+				msg.channel.send(`Song ${serverQue.songs[index].title} removed successfully.`)
+				serverQue.songs.splice(index, 1)
+				return;
+			}
+			msg.channel.send(`Song doesn't exist on index ${index}`);
 			return;
 		}
-		msg.channel.send(`Song doesn't exist on index ${index}`);
-		return;
 	}
 	msg.channel.send("Nothing is playing!")
 }
@@ -374,7 +414,7 @@ const verify = msg => {
  * console in order to help finding bugs in the program :^)
  */
 const verbose = string => {
-	if (isverbose) console.log(string);
+	if (isVerbose) console.log(string);
 }
 
 
