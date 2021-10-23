@@ -11,9 +11,6 @@ const client = new Client({intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_M
 // used on multiple servers simultaneously
 const queue = new Map();
 
-// Variable to store the timeout for disconnection
-let timeout;
-
 let isVerbose = false;
 
 let args = process.argv.slice(2)
@@ -40,6 +37,7 @@ client.on("ready", function() {
  * On message sent by user, do something
  */
 client.on("messageCreate", async msg => {
+	let message = msg;
 	if (!msg.guild.me.permissionsIn(msg.channel).has("SEND_MESSAGES")) {
 		verbose(`No permission to message to channel ${msg.channel}`);
 		return;
@@ -64,7 +62,7 @@ client.on("messageCreate", async msg => {
 			verbose(`Tried deleting already deleted message`)
 		});
 	} else {
-		msg.reply(`Sorry, I don't have permission to delete messages. For best
+		msg.channel.send(`Sorry, I don't have permission to delete messages. For best
 		results consider giving me ability to 'Manage messages'.`);
 	}
 	
@@ -89,10 +87,10 @@ client.on("messageCreate", async msg => {
 //			clear(msg);
 			break;
 		case "ping":
-			msg.reply("pong");
+			msg.channel.send("pong");
 			break;
 		case "help":
-			msg.reply("I know the following commands:\
+			msg.channel.send("I know the following commands:\
 					  \n> skip: Skips the song currently playing\
 					  \n> stop: Stops playing music and clears the queue\
 					  \n> restart: Starts playing the same song again\
@@ -120,16 +118,13 @@ const handleSong = async (msg, serverQueue) => {
 	let url = getUrl(msg);
 	if (!url.startsWith("http")) {
 		id = await searchString(msg);
+		if ( id === "") {
+			throw "No video found";
+		}
 		url = "http://www.youtube.com/watch?v=" + id;
 	}
 
 	try {	
-		if (id === "") {
-			let asd = `error searching vid, this should never be 
-			reached. pls contact the developer :)`;
-			msg.reply(asd);
-			verbose(asd);
-		}
 		verbose(`Found address for query: ${url}`);
 
 		// Get song info using ytdl-core from Youtube
