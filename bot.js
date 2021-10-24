@@ -116,15 +116,16 @@ const handleSong = async (msg, serverQueue) => {
 	// Check if request was http(s) request or search query
 	let id;
 	let url = getUrl(msg);
-	if (!url.startsWith("http")) {
-		id = await searchString(msg);
-		if ( id === "") {
-			throw "No video found";
-		}
-		url = "http://www.youtube.com/watch?v=" + id;
-	}
-
 	try {	
+		if (!url.startsWith("http")) {
+			id = await searchString(msg);
+			if ( id === "") {
+				throw "No video found";
+			}
+			url = "http://www.youtube.com/watch?v=" + id;
+		}
+
+
 		verbose(`Found address for query: ${url}`);
 
 		// Get song info using ytdl-core from Youtube
