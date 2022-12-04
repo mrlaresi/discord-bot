@@ -1,14 +1,14 @@
-const { joinVoiceChannel, createAudioPlayer } = require('@discordjs/voice');
+const { joinVoiceChannel } = require('@discordjs/voice');
+
+const logger = require('./logger');
 
 const joinVoice = (queue) => {
 	queue.connection = joinVoiceChannel(queue.voiceChannel);
-	queue.audioPlayer = createAudioPlayer();
-	queue.connection.subscribe(queue.audioPlayer);
 };
 
-const startTimedDisconnect = (que, callback) => {
-	// verbose("Starting disconnect timeout.");
-	que.timeout = setTimeout(() => callback(), 30000);
+const startTimedDisconnect = (que) => {
+	logger.debug('Starting disconnect timeout.');
+	que.timeout = setTimeout(() => disconnect(que), 30000);
 	que.playing = false;
 	return;
 };
@@ -16,9 +16,16 @@ const startTimedDisconnect = (que, callback) => {
 
 const interruptDisconnection = (que) => {
 	clearTimeout(que.timeout);
-	// verbose("Timeout interrupted.");
+	logger.debug('Timeout was interrupted.');
 	que.timeout = undefined;
 	return;
+};
+
+const disconnect = (queue) => {
+	queue.audioPlayer.stop();
+	queue.connection.disconnect();
+	queue.audioPlayer = undefined;
+	queue.connection = undefined;
 };
 
 module.exports = {

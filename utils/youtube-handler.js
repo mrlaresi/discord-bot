@@ -1,6 +1,8 @@
 const ytsr = require('ytsr');
 const ytdl = require('ytdl-core');
 
+const logger = require('../utils/logger');
+
 /**
  * Searches Youtube with the text the user inserted, returning the video id
  * for the first result found
@@ -8,7 +10,7 @@ const ytdl = require('ytdl-core');
  * @returns video id or empty string
  */
 const searchString = async msg => {
-	// verbose(`Query: ${query}`);
+	logger.debug(`Query ${msg}`);
 
 	// Search only for videos
 	const availableFilters = await ytsr.getFilters(msg);
@@ -26,6 +28,7 @@ const searchString = async msg => {
 };
 
 const getVideoInfo = async url => {
+	logger.debug(`Query ${url}`);
 	const songInfo = await ytdl.getInfo(url);
 	return {
 		title: songInfo.videoDetails.title,

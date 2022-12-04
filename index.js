@@ -4,6 +4,8 @@ const { Client, GatewayIntentBits, Collection, Events } = require('discord.js');
 const path = require('node:path');
 const fileSystem = require('node:fs');
 
+const logger = require('./utils/logger');
+
 const client = new Client({
 	intents: [
 		GatewayIntentBits.Guilds,
@@ -24,7 +26,7 @@ for (const file of commandFiles) {
 	if ('data' in command && 'execute in command') {
 		client.commands.set(command.data.name, command);
 	} else {
-		console.log(`[WARNING]: The command at ${filePath} is missing a required "data" or "execute" property.`);
+		logger.warn(`The command at ${filePath} is missing a required "data" or "execute" property.`);
 	}
 }
 
@@ -32,7 +34,7 @@ for (const file of commandFiles) {
  * When bot has started, send a message to console
  */
 client.once('ready', () => {
-	console.log(`Logged in as ${client.user.tag}!`);
+	logger.info(`Logged in as ${client.user.tag}!`);
 	client.user.setActivity('DwarfBot, now ready to play music!');
 });
 
@@ -44,7 +46,7 @@ client.on(Events.InteractionCreate, async interaction => {
 	const command = interaction.client.commands.get(interaction.commandName);
 
 	if (!command) {
-		console.error(`No command matching ${interaction.commandName} was found.`);
+		logger.error(`No command matching ${interaction.commandName} was found.`);
 		return;
 	}
 
@@ -52,9 +54,19 @@ client.on(Events.InteractionCreate, async interaction => {
 		await interaction.deferReply();
 		await command.execute(interaction);
 	} catch (e) {
-		console.error(e);
+		logger.error(e);
 		await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
 	}
 });
+
+const args = process.argv.slice(2);
+for (let i = 0; i < args.length; i++) {
+	switch (args[i]) {
+		case 'v':
+		case '--verbose':
+			logger.setVerbose();
+			break;
+	}
+}
 
 client.login(process.env.DISCORD_TOKEN);

@@ -26,6 +26,7 @@ const initQueue = (interaction) => {
 	joinVoice(baseQueue);
 };
 
+
 /**
  * Adds song to guild specific queue
  * @param interaction object
@@ -45,6 +46,17 @@ const addToQueue = (interaction, song) => {
 	return que;
 };
 
+
+const getQueue = (guildId) => {
+	return queue.get(guildId);
+};
+
+const deleteQueue = (guildId) => {
+	queue.delete(guildId);
+};
+
 module.exports = {
 	addToQueue,
+	getQueue,
+	deleteQueue,
 };
