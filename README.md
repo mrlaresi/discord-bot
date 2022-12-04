@@ -1,15 +1,12 @@
-# discord-bot
+# discord-bot discordjs v14
 Tiny bot for Discord that is built with Javascript. It can at the moment only play audio from videos found on Youtube, either by giving it a direct url or by searching with given text.
 
 # How the bot works:
-By default, the bot reads all messages sent on all channels, so it is recommended to isolate it to a single channel and giving it it's own role.
-
-The bot will delete the messages sent to the channel to keep it nice and tidy. To do this it requires "Manage messages" permission on the text channel it is reading. If the permission is not provided, it will only delete it's own messages.
+The bot will listen to discord slash command, and based on the command and query, it will act upon it.
 
 ## Known commands:
 
-Typing a message in the chat triggers the bot to search for Youtube videos with that message contents. No need for commands and giving url link will fetch that song directly
-
+- play: Either plays the given url, or searches from youtube with given query
 - skip: Skips the song currently playing
 - stop: Skips the song currently playing and clears the queue
 - restart: Restarts the song currently playing
@@ -22,8 +19,7 @@ The bot isn't currently public, so in order for you to use it, you have to host 
 
 ## Requirements
 
-- [Node.js environment](https://nodejs.org/en/)
-- Discord API token
+- [Node.js v19 environment](https://nodejs.org/en/). Earlier versions haven't been tested.
 
 
 ## Setting up the bot
@@ -41,7 +37,7 @@ Then, insert your Discord API key into the `.env` file like this:
 Discord API token can be obtained [as shown here.](https://www.writebots.com/discord-bot-token/)
 
 After all of that is done, simply start the bot with
-`node bot.js`
+`npm start`
 And be greeted with message:
 `Logged in as [username#discrodId]!`
 
