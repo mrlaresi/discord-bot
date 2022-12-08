@@ -100,6 +100,9 @@ const play = async (queue, song) => {
 const setupAudioPlayer = (queue) => {
 	logger.debug('Setting up AudioPlayer.');
 	queue.audioPlayer = createAudioPlayer();
+	if (!queue.connection) {
+		connectionHandler.joinVoice(queue);
+	}
 	queue.connection.subscribe(queue.audioPlayer);
 
 	queue.audioPlayer

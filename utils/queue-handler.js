@@ -1,4 +1,4 @@
-const { joinVoice, interruptDisconnection } = require('./connection-handler');
+const { interruptDisconnection } = require('./connection-handler');
 
 const queue = new Map();
 
@@ -23,7 +23,6 @@ const initQueue = (interaction) => {
 	};
 
 	queue.set(interaction.guildId, baseQueue);
-	joinVoice(baseQueue);
 };
 
 
